@@ -5,6 +5,7 @@ import csv
 import io
 import math
 import requests
+import time
 
 # =========================================================
 # PAGE CONFIGURATION
@@ -813,34 +814,45 @@ Please enter a valid subject and topic."""
     },
 }
 
-
 def ask_gemini(prompt, temperature=None):
     try:
         api_key = st.secrets["GEMINI_API_KEY"]
     except Exception:
         return "Error: API key not found. Add GEMINI_API_KEY in Streamlit Secrets."
 
-    url = (
-        "https://generativelanguage.googleapis.com/v1beta/models/"
-        + GEMINI_MODEL + ":generateContent"
-    )
     body = {"contents": [{"parts": [{"text": prompt}]}]}
     if temperature is not None:
         body["generationConfig"] = {"temperature": temperature}
 
-    try:
-        response = requests.post(
-            url,
-            headers={"x-goog-api-key": api_key, "Content-Type": "application/json"},
-            json=body,
-            timeout=60
+    models_to_try = [GEMINI_MODEL, "gemini-3.8-flash-lite"]
+    last_error = "No answer received"
+
+    for model_name in models_to_try:
+        url = (
+            "https://generativelanguage.googleapis.com/v1beta/models/"
+            + model_name + ":generateContent"
         )
-        data = response.json()
-        if response.status_code != 200:
-            return "Error from Gemini: " + data.get("error", {}).get("message", str(response.status_code))
-        return data["candidates"][0]["content"]["parts"][0]["text"]
-    except Exception as e:
-        return "Error: " + str(e)
+        for attempt in range(2):
+            try:
+                response = requests.post(
+                    url,
+                    headers={"x-goog-api-key": api_key, "Content-Type": "application/json"},
+                    json=body,
+                    timeout=30
+                )
+                data = response.json()
+                if response.status_code == 200:
+                    return data["candidates"][0]["content"]["parts"][0]["text"]
+                last_error = data.get("error", {}).get("message", str(response.status_code))
+                if response.status_code in (429, 500, 503):
+                    time.sleep(3)
+                    continue
+                break
+            except Exception as e:
+                last_error = "Gemini took too long to answer. Please click the button again."
+                time.sleep(2)
+
+    return "Error from Gemini: " + last_error
 
 
 if "generated_plan" in st.session_state:
