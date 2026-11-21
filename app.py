@@ -820,37 +820,45 @@ def ask_gemini(prompt, temperature=None):
     except Exception:
         return "Error: API key not found. Add GEMINI_API_KEY in Streamlit Secrets."
 
+    headers = {"x-goog-api-key": api_key, "Content-Type": "application/json"}
+    base = "https://generativelanguage.googleapis.com/v1beta/"
+
+    models_to_try = [GEMINI_MODEL]
+    try:
+        listing = requests.get(base + "models?pageSize=100", headers=headers, timeout=15).json()
+        for m in listing.get("models", []):
+            name = m["name"].replace("models/", "")
+            skip = ["image", "tts", "audio", "live", "embedding", "robotics", "computer"]
+            if ("generateContent" in m.get("supportedGenerationMethods", [])
+                    and "flash" in name
+                    and not any(s in name for s in skip)
+                    and name not in models_to_try):
+                models_to_try.append(name)
+    except Exception:
+        pass
+
     body = {"contents": [{"parts": [{"text": prompt}]}]}
     if temperature is not None:
         body["generationConfig"] = {"temperature": temperature}
 
-    models_to_try = [GEMINI_MODEL, "gemini-3.8-flash-lite"]
     last_error = "No answer received"
-
-    for model_name in models_to_try:
-        url = (
-            "https://generativelanguage.googleapis.com/v1beta/models/"
-            + model_name + ":generateContent"
-        )
+    for model_name in models_to_try[:5]:
+        url = base + "models/" + model_name + ":generateContent"
         for attempt in range(2):
             try:
-                response = requests.post(
-                    url,
-                    headers={"x-goog-api-key": api_key, "Content-Type": "application/json"},
-                    json=body,
-                    timeout=30
-                )
+                response = requests.post(url, headers=headers, json=body, timeout=40)
                 data = response.json()
                 if response.status_code == 200:
                     return data["candidates"][0]["content"]["parts"][0]["text"]
-                last_error = data.get("error", {}).get("message", str(response.status_code))
+                last_error = model_name + ": " + data.get("error", {}).get("message", str(response.status_code))
                 if response.status_code in (429, 500, 503):
                     time_module.sleep(3)
                     continue
                 break
-            except Exception as e:
-                last_error = "Gemini took too long to answer. Please click the button again."
+            except Exception:
+                last_error = model_name + ": Gemini took too long to answer."
                 time_module.sleep(2)
+
     return "Error from Gemini: " + last_error
 
 
