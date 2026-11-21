@@ -845,13 +845,12 @@ def ask_gemini(prompt, temperature=None):
                     return data["candidates"][0]["content"]["parts"][0]["text"]
                 last_error = data.get("error", {}).get("message", str(response.status_code))
                 if response.status_code in (429, 500, 503):
-                    time.sleep_module(3)
+                    time_module.sleep(3)
                     continue
                 break
             except Exception as e:
                 last_error = "Gemini took too long to answer. Please click the button again."
-                time.sleep_module(2)
-
+                time_module.sleep(2)
     return "Error from Gemini: " + last_error
 
 
