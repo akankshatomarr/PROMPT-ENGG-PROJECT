@@ -737,7 +737,7 @@ if "generated_plan" in st.session_state:
 # AI STUDY TIPS (GEMINI)
 # =========================================================
 
-GEMINI_MODEL = "gemini-2.5-flash"
+GEMINI_MODEL = "gemini-3.8-flash"
 
 PROMPTS = {
     "v1": {
