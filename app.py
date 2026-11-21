@@ -4,6 +4,7 @@ from datetime import date, datetime, time, timedelta
 import csv
 import io
 import math
+import requests
 
 # =========================================================
 # PAGE CONFIGURATION
@@ -732,7 +733,159 @@ if "generated_plan" in st.session_state:
 
         st.rerun()
 
+# =========================================================
+# AI STUDY TIPS (GEMINI)
+# =========================================================
 
+GEMINI_MODEL = "gemini-2.5-flash"
+
+PROMPTS = {
+    "v1": {
+        "temperature": None,
+        "template": """You are SmartStudy, an AI study-planning assistant. Create a personalized study plan for one study session.
+Subject: {subject}
+Topic: {topic}
+Difficulty: {difficulty}
+Exam date: {exam_date}
+Available time: {minutes} minutes
+Give priority to difficult topics and upcoming exams. Include revision and short breaks, and do not exceed the available time. If any important information is missing, ask the student instead of guessing."""
+    },
+    "v2": {
+        "temperature": None,
+        "template": """You are SmartStudy, an AI study-planning assistant for college students.
+Task: Create a plan for ONE study session.
+Subject: {subject}
+Topic: {topic}
+Difficulty: {difficulty}
+Exam date: {exam_date}
+Available time: {minutes} minutes
+
+Rules:
+- The minutes of all steps must add up to exactly {minutes}.
+- Include one revision step. Include a short break if the session is longer than 45 minutes.
+- Do not exceed the available time.
+
+Output format (use exactly these headings):
+Goal: one sentence
+Plan: a numbered list, each line written as "minutes - activity"
+Practice: 3 short practice questions
+Tip: one short tip
+
+If the subject or topic is missing or makes no sense, reply only with: Please enter a valid subject and topic."""
+    },
+    "v3": {
+        "temperature": 0.2,
+        "template": """You are SmartStudy, an AI study-planning assistant for college students. Reply in simple English.
+Task: Create a plan for ONE study session.
+Subject: {subject}
+Topic: {topic}
+Difficulty: {difficulty}
+Exam date: {exam_date}
+Available time: {minutes} minutes
+
+Rules:
+- The minutes of all steps must add up to exactly {minutes}.
+- Include one revision step. Include a short break if the session is longer than 45 minutes.
+- Do not exceed the available time.
+- If the subject or topic is missing or makes no sense, reply only with: Please enter a valid subject and topic.
+
+Output format (use exactly these headings): Goal, Plan, Practice, Tip.
+
+Example 1
+Input: Subject: Operating Systems, Topic: Deadlocks, Difficulty: Medium, Time: 60 minutes
+Output:
+Goal: Understand how deadlocks happen and how to prevent them.
+Plan:
+1. 20 - Read the four deadlock conditions
+2. 20 - Solve resource-allocation graph problems
+3. 15 - Revise by writing the conditions from memory
+4. 5 - Break
+Practice:
+1. List the four conditions for deadlock.
+2. How does the banker's algorithm avoid deadlock?
+3. Draw a graph that shows a deadlock.
+Tip: Practise with one small example before reading long notes.
+
+Example 2
+Input: Subject: asdf, Topic: ???, Difficulty: Easy, Time: 30 minutes
+Output:
+Please enter a valid subject and topic."""
+    },
+}
+
+
+def ask_gemini(prompt, temperature=None):
+    try:
+        api_key = st.secrets["GEMINI_API_KEY"]
+    except Exception:
+        return "Error: API key not found. Add GEMINI_API_KEY in Streamlit Secrets."
+
+    url = (
+        "https://generativelanguage.googleapis.com/v1beta/models/"
+        + GEMINI_MODEL + ":generateContent"
+    )
+    body = {"contents": [{"parts": [{"text": prompt}]}]}
+    if temperature is not None:
+        body["generationConfig"] = {"temperature": temperature}
+
+    try:
+        response = requests.post(
+            url,
+            headers={"x-goog-api-key": api_key, "Content-Type": "application/json"},
+            json=body,
+            timeout=60
+        )
+        data = response.json()
+        if response.status_code != 200:
+            return "Error from Gemini: " + data.get("error", {}).get("message", str(response.status_code))
+        return data["candidates"][0]["content"]["parts"][0]["text"]
+    except Exception as e:
+        return "Error: " + str(e)
+
+
+if "generated_plan" in st.session_state:
+
+    st.markdown("---")
+    st.markdown("### AI study tips (Gemini)")
+
+    plan_subjects = st.session_state["plan_info"]["subjects"]
+    names = [s["name"] for s in plan_subjects]
+
+    ai_col1, ai_col2 = st.columns(2)
+
+    with ai_col1:
+        chosen_name = st.selectbox("Subject", names, key="ai_subject")
+        chosen = plan_subjects[names.index(chosen_name)]
+        topic_choices = chosen["topics"] if chosen["topics"] else ["Concept learning and practice"]
+        ai_topic = st.selectbox("Topic", topic_choices, key="ai_topic")
+        custom_topic = st.text_input("Or type your own topic (optional)", key="ai_custom_topic")
+
+    with ai_col2:
+        ai_minutes = st.number_input("Session minutes", min_value=10, max_value=180, value=50, step=5, key="ai_minutes")
+        ai_version = st.selectbox("Prompt version", ["v1", "v2", "v3"], index=2, key="ai_version")
+
+    if st.button("Get AI study tips", key="ai_button"):
+        final_topic = custom_topic.strip() if custom_topic.strip() else ai_topic
+        exam_text = str(chosen["exam_date"]) if chosen["exam_date"] else "not given"
+
+        final_prompt = PROMPTS[ai_version]["template"].format(
+            subject=chosen["name"],
+            topic=final_topic,
+            difficulty=chosen["difficulty"],
+            exam_date=exam_text,
+            minutes=ai_minutes
+        )
+
+        with st.spinner("Asking Gemini..."):
+            ai_answer = ask_gemini(final_prompt, PROMPTS[ai_version]["temperature"])
+
+        st.session_state["ai_answer"] = ai_answer
+        st.session_state["ai_prompt_used"] = final_prompt
+
+    if "ai_answer" in st.session_state:
+        st.markdown(st.session_state["ai_answer"])
+        with st.expander("Show the prompt that was sent"):
+            st.code(st.session_state["ai_prompt_used"])
 # =========================================================
 # FOOTER
 # =========================================================
