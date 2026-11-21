@@ -902,7 +902,8 @@ if "generated_plan" in st.session_state:
         st.session_state["ai_prompt_used"] = final_prompt
 
     if "ai_answer" in st.session_state:
-        st.markdown(st.session_state["ai_answer"])
+        st.markdown(st.session_state["ai_answer"].replace("\n", "  \n"))
+        
         with st.expander("Show the prompt that was sent"):
             st.code(st.session_state["ai_prompt_used"])
 # =========================================================
